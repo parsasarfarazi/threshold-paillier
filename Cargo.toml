@@ -1,0 +1,18 @@
+[package]
+name = "tcpaillier"
+version = "0.1.0"
+edition = "2021"
+authors = ["Parsa Sarfarazi <parsasarfarazi@gmail.com>"]
+description = "Threshold Paillier cryptosystem in Rust based on the paper by "
+license = "MIT"
+repository = "https://github.com/parsasarfarazi/tcpaillier"
+readme = "README.md"
+keywords = ["cryptography", "paillier", "threshold", "homomorphic"]
+categories = ["cryptography", "algorithms"]
+
+[lib]
+name = "tcpaillier"
+path = "src/lib.rs"
+
+
+[dependencies]
