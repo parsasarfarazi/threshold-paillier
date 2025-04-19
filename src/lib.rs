@@ -6,11 +6,8 @@
 //!
 //! # Example
 //! ```
-//! use threshold_paillier::keygen;
-//! let (pk, shares) = keygen(2, 3);
+//! // TODO
 //! ```
 
 
-fn main() {
-    println!("Hello, world!");
-}
+pub mod keygen;
