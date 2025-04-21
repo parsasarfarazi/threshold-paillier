@@ -16,3 +16,18 @@ path = "src/lib.rs"
 
 
 [dependencies]
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+rand = "0.8"
+thiserror = "1.0"
+rug = "1.26"
+sha2 = "0.10"
+crypto-bigint = "0.6.1"
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+# [[bench]]
+# name = "benchmarks"
+# harness = false

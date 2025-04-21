@@ -9,5 +9,15 @@
 //! // TODO
 //! ```
 
+pub mod decryption_share;
+pub mod functions;
+pub mod polynomial;
+pub mod pub_key;
+pub mod tcpaillier;
+pub mod threshold_share;
+pub mod zk_proof;
 
-pub mod keygen;
+pub use pub_key::PublicKey;
+pub use tcpaillier::{FixedParams, NewKeyError, ThresholdPaillier};
+pub use threshold_share::KeyShare;
+pub use zk_proof::{DecryptShareZK, ZKProofError};
