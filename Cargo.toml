@@ -16,14 +16,14 @@ path = "src/lib.rs"
 
 
 [dependencies]
-num-bigint = { version = "0.4", features = ["rand"] }
+num-bigint = "0.4"
 num-traits = "0.2"
-rand = "0.8"
-thiserror = "1.0"
+rand = "0.8.0"
+thiserror = "2.0.12"
 rug = "1.26"
 sha2 = "0.10"
-crypto-bigint = "0.6.1"
-zeroize = { version = "1.8", features = ["zeroize_derive"] }
+zeroize =  "1.8"
+num-integer = "0.1.45"
 
 [dev-dependencies]
 criterion = "0.5"

@@ -1,8 +1,8 @@
-use crypto_bigint::{modular::ConstMontyForm, NonZero, Uint, U2048};
 use num_bigint::{BigInt, Sign};
 use num_traits::{One, Zero};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use thiserror::Error;
 
 use crate::decryption_share::DecryptionShare;
@@ -45,12 +45,36 @@ pub struct PublicKey {
     pub s: u8,
     pub delta: BigInt,
     pub constant: BigInt,
-    cached: Option<Cached>,
+    cached: RefCell<Option<Cached>>,
 }
 
 impl PublicKey {
-    pub fn cache(&mut self) -> &Cached {
-        if self.cached.is_none() {
+    // Add this new constructor function
+    pub fn new_uncached(
+        n: BigInt,
+        v: BigInt,
+        l: u8,
+        k: u8,
+        s: u8,
+        delta: BigInt,
+        constant: BigInt,
+    ) -> Self {
+        PublicKey {
+            n,
+            v,
+            vi: vec![BigInt::zero(); l as usize],
+            l,
+            k,
+            s,
+            delta,
+            constant,
+            cached: RefCell::new(None),
+        }
+    }
+    
+    // Existing methods remain unchanged...
+    pub fn cache(&self) -> std::cell::Ref<'_, Cached> {
+        if self.cached.borrow().is_none() {
             let big_s = BigInt::from(self.s);
             let s_plus_one = &big_s + BigInt::one();
             let n_plus_one = &self.n + BigInt::one();
@@ -59,7 +83,7 @@ impl PublicKey {
             let n_to_s_plus_one = self
                 .n
                 .modpow(&s_plus_one, &(&self.n * &(&s_plus_one + BigInt::one())));
-            self.cached = Some(Cached {
+            *self.cached.borrow_mut() = Some(Cached {
                 n_plus_one,
                 n_minus_one,
                 s_plus_one,
@@ -68,10 +92,10 @@ impl PublicKey {
                 big_s,
             });
         }
-        self.cached.as_ref().unwrap()
+        std::cell::Ref::map(self.cached.borrow(), |c| c.as_ref().unwrap())
     }
 
-    pub fn encrypt(&mut self, message: &BigInt) -> Result<(BigInt, BigInt), PubKeyError> {
+    pub fn encrypt(&self, message: &BigInt) -> Result<(BigInt, BigInt), PubKeyError> {
         let r = self.random_mod_n_to_s_plus_one_star()?;
         let c = self.encrypt_fixed(message, &r)?;
         Ok((c, r))
@@ -83,41 +107,22 @@ impl PublicKey {
         let n_to_s = &cache.n_to_s;
         let n_to_s_plus_one = &cache.n_to_s_plus_one;
 
-        // Convert to crypto-bigint
-        let n_plus_one_uint = U2048::from_be_slice(&n_plus_one.to_bytes_be().1)
-            .ok_or_else(|| PubKeyError::EncryptionError("n_plus_one too large".to_string()))?;
-        let n_to_s_uint = U2048::from_be_slice(&n_to_s.to_bytes_be().1)
-            .ok_or_else(|| PubKeyError::EncryptionError("n_to_s too large".to_string()))?;
-        let n_to_s_plus_one_uint = U2048::from_be_slice(&n_to_s_plus_one.to_bytes_be().1)
-            .ok_or_else(|| PubKeyError::EncryptionError("n_to_s_plus_one too large".to_string()))?;
-        let message_uint = U2048::from_be_slice(&message.to_bytes_be().1)
-            .ok_or_else(|| PubKeyError::EncryptionError("message too large".to_string()))?;
-        let r_uint = U2048::from_be_slice(&r.to_bytes_be().1)
-            .ok_or_else(|| PubKeyError::EncryptionError("r too large".to_string()))?;
+        let n_sq = &self.n * &self.n;
+        let m_n = n_plus_one.modpow(message, &n_sq);
+        let r_n = r.modpow(&self.n, &n_sq);
+        let c = (m_n * r_n) % &n_sq;
 
-        // Constant-time modular exponentiation
-        let n_to_s_plus_one_nz = NonZero::new(n_to_s_plus_one_uint).unwrap();
-        let n_plus_one_monty = ConstMontyForm::new(&n_plus_one_uint, n_to_s_plus_one_nz);
-        let r_monty = ConstMontyForm::new(&r_uint, n_to_s_plus_one_nz);
-
-        let n_plus_one_to_m = n_plus_one_monty.pow(&message_uint);
-        let r_to_n_to_s = r_monty.pow(&n_to_s_uint);
-        let c_uint = n_plus_one_to_m * r_to_n_to_s;
-
-        // Convert back to BigInt
-        let c_bytes = c_uint.retrieve().to_be_bytes();
-        let c = BigInt::from_bytes_be(Sign::Plus, &c_bytes);
-        Ok(c)
+        return Ok(c);
     }
 
-    pub fn encrypt_with_proof(&mut self, message: &BigInt) -> Result<(BigInt, EncryptZK), PubKeyError> {
+    pub fn encrypt_with_proof(&self, message: &BigInt) -> Result<(BigInt, EncryptZK), PubKeyError> {
         let r = self.random_mod_n_to_s_plus_one_star()?;
         let (c, proof) = self.encrypt_fixed_with_proof(message, &r)?;
         Ok((c, proof))
     }
 
     pub fn encrypt_fixed_with_proof(
-        &mut self,
+        &self,
         message: &BigInt,
         r: &BigInt,
     ) -> Result<(BigInt, EncryptZK), PubKeyError> {
@@ -145,7 +150,7 @@ impl PublicKey {
         Ok(sum)
     }
 
-    pub fn multiply(&mut self, c: &BigInt, alpha: &BigInt) -> Result<(BigInt, BigInt), PubKeyError> {
+    pub fn multiply(&self, c: &BigInt, alpha: &BigInt) -> Result<(BigInt, BigInt), PubKeyError> {
         let gamma = self.random_mod_n_to_s_plus_one_star()?;
         let mul = self.multiply_fixed(c, alpha, &gamma)?;
         Ok((mul, gamma))
@@ -175,7 +180,7 @@ impl PublicKey {
     }
 
     pub fn multiply_with_proof(
-        &mut self,
+        &self,
         encrypted: &BigInt,
         constant: &BigInt,
     ) -> Result<(BigInt, MulZK), PubKeyError> {
@@ -186,7 +191,7 @@ impl PublicKey {
         Ok((result, proof))
     }
 
-    pub fn combine_shares(&mut self, shares: &[DecryptionShare]) -> Result<BigInt, PubKeyError> {
+    pub fn combine_shares(&self, shares: &[DecryptionShare]) -> Result<BigInt, PubKeyError> {
         let k = self.k as usize;
         let delta = self.delta.clone();
         let cache = self.cache();
@@ -250,7 +255,7 @@ impl PublicKey {
         let e_bytes = hash.finalize();
         let e = BigInt::from_bytes_le(Sign::Plus, &e_bytes);
 
-        let e_alpha = &e * α
+        let e_alpha = &e * alpha;
         let dummy = &x + &e_alpha;
         let w = dummy.clone() % n_to_s;
         let t = &dummy / n_to_s;
@@ -341,5 +346,20 @@ impl PublicKey {
         let r = random_mod_minus_one(&n_to_s_plus_one_minus_one, &mut OsRng)
             .map_err(|e| PubKeyError::RandomNumberError(e.to_string()))?;
         Ok(r + BigInt::one())
+    }
+
+    pub fn get_n_plus_one(&self) -> BigInt {
+        let cache = self.cache();
+        cache.n_plus_one.clone()
+    }
+
+    pub fn get_n_to_s_plus_one(&self) -> BigInt {
+        let cache = self.cache();
+        cache.n_to_s_plus_one.clone()
+    }
+
+    pub fn get_n_to_s(&self) -> BigInt {
+        let cache = self.cache();
+        cache.n_to_s.clone()
     }
 }

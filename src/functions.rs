@@ -44,8 +44,8 @@ pub fn generate_safe_primes(bit_len: usize) -> Result<(BigInt, BigInt), Function
     if bit_len < 2 {
         return Err(FunctionError::InvalidBitLength);
     }
-    let bit_len_u32 = TryInto::<u32>::try_into(bit_len)
-        .map_err(|_| FunctionError::InvalidBitLength)?;
+    let bit_len_u32 =
+        TryInto::<u32>::try_into(bit_len).map_err(|_| FunctionError::InvalidBitLength)?;
     let mut q = Integer::new();
     let mut p = Integer::new();
     let mut seed = [0u8; 32];
@@ -123,7 +123,11 @@ mod tests {
         let e = BigInt::from(65537);
         let d = e.modinv(&m).expect("modular inverse failed");
         let r = (&d * &e) % &m;
-        assert_eq!(r, BigInt::from(1), "safe prime generation failed modular inverse test");
+        assert_eq!(
+            r,
+            BigInt::from(1),
+            "safe prime generation failed modular inverse test"
+        );
     }
 
     #[test]
