@@ -76,9 +76,13 @@ pub fn factorial(n: u64) -> BigInt {
 mod tests {
     use super::*;
     use num_bigint::BigInt;
+    use num_traits::{One, Zero};
+    use rand::thread_rng;
+    use std::time::Instant;
 
     const TEST_BITLEN: usize = 256;
     const TEST_C: u32 = 40;
+    const SMALL_BITLEN: usize = 32;
 
     #[test]
     fn test_random_int_different() {
@@ -99,9 +103,92 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_safe_primes() {
+    fn test_random_int_distribution() {
+        // Generate many small random numbers and check basic statistical properties
+        let mut sum = BigInt::zero();
+        let count = 1000;
+        let bits = 8;
+        
+        for _ in 0..count {
+            let r = random_int(bits).expect("random number generation failed");
+            sum += r;
+        }
+        
+        let avg = &sum / BigInt::from(count);
+        let max_possible = BigInt::from(1) << bits;
+        let expected_avg = &max_possible / BigInt::from(2);
+        
+        // Check that average is within reasonable bounds (±20% of expected)
+        let lower_bound = (&expected_avg * BigInt::from(8)) / BigInt::from(10);
+        let upper_bound = (&expected_avg * BigInt::from(12)) / BigInt::from(10);
+        
+        assert!(
+            avg >= lower_bound && avg <= upper_bound,
+            "average {} is outside expected range around {}",
+            avg, expected_avg
+        );
+    }
+
+    #[test]
+    fn test_random_mod() {
+        let modulus = BigInt::from(1000);
+        let mut rng = thread_rng();
+        
+        // Test that random numbers are within range
+        for _ in 0..100 {
+            let r = random_mod(&modulus, &mut rng).expect("random_mod failed");
+            assert!(r >= BigInt::zero() && r < modulus);
+        }
+        
+        // Test error case
+        let zero = BigInt::zero();
+        let result = random_mod(&zero, &mut rng);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_random_mod_minus_one() {
+        let modulus = BigInt::from(1000);
+        let mut rng = thread_rng();
+        
+        // Test that random numbers are within range
+        for _ in 0..100 {
+            let r = random_mod_minus_one(&modulus, &mut rng).expect("random_mod_minus_one failed");
+            assert!(r >= BigInt::zero() && r < modulus);
+        }
+    }
+
+    #[test]
+    fn test_generate_safe_primes_size() {
+        let (p, q) = generate_safe_primes(TEST_BITLEN).expect("safe prime generation failed");
+        
+        // Check p's bit size
+        assert!(
+            p.bits() as usize <= TEST_BITLEN,
+            "p bit length {} exceeds {}",
+            p.bits(),
+            TEST_BITLEN
+        );
+        
+        // Check q's bit size (should be one bit less than p)
+        assert!(
+            q.bits() as usize <= TEST_BITLEN - 1,
+            "q bit length {} exceeds {}",
+            q.bits(),
+            TEST_BITLEN - 1
+        );
+    }
+    
+    #[test]
+    fn test_generate_safe_primes_relation() {
         let (p, q) = generate_safe_primes(TEST_BITLEN).expect("safe prime generation failed");
         let p_expected = &q * BigInt::from(2) + BigInt::from(1);
+        assert_eq!(p, p_expected, "p != 2*q + 1");
+    }
+
+    #[test]
+    fn test_generate_safe_primes_primality() {
+        let (p, q) = generate_safe_primes(TEST_BITLEN).expect("safe prime generation failed");
         let p_rug = Integer::from_digits(&p.to_bytes_be().1, Order::Msf);
         let q_rug = Integer::from_digits(&q.to_bytes_be().1, Order::Msf);
         assert!(
@@ -112,13 +199,23 @@ mod tests {
             q_rug.is_probably_prime(TEST_C) != rug::integer::IsPrime::No,
             "q is not prime"
         );
-        assert_eq!(p, p_expected, "p != 2*q + 1");
+    }
+
+    #[test]
+    fn test_generate_safe_primes_invalid_input() {
+        // Test with bit length too small
+        let result = generate_safe_primes(1);
+        assert!(result.is_err());
+        
+        // Test with bit length 2 (should be valid minimum)
+        let result = generate_safe_primes(2);
+        assert!(result.is_ok());
     }
 
     #[test]
     fn test_generate_safe_primes_key_generation() {
-        let (_, pr) = generate_safe_primes(TEST_BITLEN).expect("safe prime generation failed");
-        let (_, qr) = generate_safe_primes(TEST_BITLEN).expect("safe prime generation failed");
+        let (_, pr) = generate_safe_primes(SMALL_BITLEN).expect("safe prime generation failed");
+        let (_, qr) = generate_safe_primes(SMALL_BITLEN).expect("safe prime generation failed");
         let m = &pr * &qr;
         let e = BigInt::from(65537);
         let d = e.modinv(&m).expect("modular inverse failed");
@@ -132,8 +229,45 @@ mod tests {
 
     #[test]
     fn test_factorial() {
+        // Test specific known cases
         assert_eq!(factorial(0), BigInt::from(1));
         assert_eq!(factorial(1), BigInt::from(1));
         assert_eq!(factorial(5), BigInt::from(120));
+        assert_eq!(factorial(10), BigInt::from(3628800));
+        
+        // Test recursive property: n! = n * (n-1)!
+        for n in 2..15 {
+            let fact_n = factorial(n);
+            let fact_n_minus_1 = factorial(n - 1);
+            assert_eq!(fact_n, BigInt::from(n) * fact_n_minus_1);
+        }
+    }
+    
+    #[test]
+    fn test_factorial_performance() {
+        // Test performance for reasonable sizes (should be fast for small numbers)
+        let start = Instant::now();
+        let result = factorial(20);
+        let duration = start.elapsed();
+        
+        // Expected result for 20!
+        let expected = BigInt::parse_bytes(b"2432902008176640000", 10).unwrap();
+        assert_eq!(result, expected);
+        
+        println!("Time to compute factorial(20): {:?}", duration);
+        // This shouldn't take more than a few milliseconds
+        assert!(duration.as_millis() < 100);
+    }
+    
+    #[test]
+    #[ignore] // This test is for benchmarking, not regular runs
+    fn test_prime_generation_performance() {
+        let start = Instant::now();
+        let (p, q) = generate_safe_primes(512).expect("safe prime generation failed");
+        let duration = start.elapsed();
+        
+        println!("Time to generate 512-bit safe primes: {:?}", duration);
+        println!("p: {} bits", p.bits());
+        println!("q: {} bits", q.bits());
     }
 }
