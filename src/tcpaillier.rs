@@ -221,3 +221,275 @@ fn extended_gcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
 fn mod_pow(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
     base.modpow(exp, modulus)
 }
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use num_traits::Pow;
+    use std::str::FromStr;
+    
+    // Helper function for more concise test code
+    fn create_test_params() -> FixedParams {
+        // Using smaller primes for testing
+        // p and q are safe primes (p = 2p' + 1 where p' is prime)
+        // p = 23, p' = 11
+        // q = 47, q' = 23
+        let p = BigInt::from(23u32);
+        let p1 = BigInt::from(11u32);
+        let q = BigInt::from(47u32);
+        let q1 = BigInt::from(23u32);
+        
+        FixedParams { p, p1, q, q1 }
+    }
+    
+    #[test]
+    fn test_fixed_params_validate() {
+        let params = create_test_params();
+        assert!(params.validate(), "Valid test parameters should validate");
+        
+        // Test with invalid params where p1 is not (p-1)/2
+        let invalid_params = FixedParams {
+            p: BigInt::from(23u32),
+            p1: BigInt::from(13u32), // Not (p-1)/2
+            q: BigInt::from(47u32),
+            q1: BigInt::from(23u32),
+        };
+        assert!(!invalid_params.validate(), "Invalid parameters should not validate");
+    }
+    
+    #[test]
+    fn test_new_with_bit_size_too_small() {
+        // Test with bit_size < 64
+        let result = ThresholdPaillier::new(32, 1, 3, 2);
+        assert!(matches!(result, Err(NewKeyError::BitSizeTooSmall(32))));
+    }
+    
+    #[test]
+    fn test_new_with_s_too_small() {
+        // Test with s < 1
+        let result = ThresholdPaillier::new_fixed_key(64, 0, 3, 2, &create_test_params());
+        assert!(matches!(result, Err(NewKeyError::STooSmall(0))));
+    }
+    
+    #[test]
+    fn test_new_with_l_too_small() {
+        // Test with l <= 1
+        let result = ThresholdPaillier::new_fixed_key(64, 1, 1, 1, &create_test_params());
+        assert!(matches!(result, Err(NewKeyError::LTooSmall(1))));
+    }
+    
+    #[test]
+    fn test_new_with_k_too_small() {
+        // Test with k <= 0
+        let result = ThresholdPaillier::new_fixed_key(64, 1, 3, 0, &create_test_params());
+        assert!(matches!(result, Err(NewKeyError::KTooSmall(0))));
+    }
+    
+    #[test]
+    fn test_new_with_k_out_of_range() {
+        // Test with k < (l/2) + 1
+        // For l = 5, k should be at least 3
+        let result = ThresholdPaillier::new_fixed_key(64, 1, 5, 2, &create_test_params());
+        assert!(matches!(result, Err(NewKeyError::KOutOfRange(2, 3, 5))));
+        
+        // Test with k > l
+        let result = ThresholdPaillier::new_fixed_key(64, 1, 5, 6, &create_test_params());
+        assert!(matches!(result, Err(NewKeyError::KOutOfRange(6, 3, 5))));
+    }
+    
+    #[test]
+    fn test_new_fixed_key_success() {
+        let params = create_test_params();
+        let result = ThresholdPaillier::new_fixed_key(64, 1, 3, 2, &params);
+        assert!(result.is_ok(), "Key generation should succeed with valid parameters");
+        
+        let tp = result.unwrap();
+        assert_eq!(tp.pub_key.n, params.p.clone() * params.q.clone());
+        assert_eq!(tp.pub_key.l, 3);
+        assert_eq!(tp.pub_key.k, 2);
+        assert_eq!(tp.pub_key.s, 1);
+        assert_eq!(tp.key_shares.len(), 3);
+        
+        // Check that each key share has correct index
+        for i in 0..3 {
+            assert_eq!(tp.key_shares[i].index, (i + 1) as u8);
+        }
+    }
+    
+    #[test]
+    fn test_mod_inverse() {
+        // Test with values that have an inverse
+        let a = BigInt::from(3u32);
+        let m = BigInt::from(11u32);
+        let result = mod_inverse(&a, &m);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), BigInt::from(4u32)); // 3 * 4 = 12 ≡ 1 (mod 11)
+        
+        // Test with values that don't have an inverse (gcd(a,m) != 1)
+        let a = BigInt::from(4u32);
+        let m = BigInt::from(8u32);
+        let result = mod_inverse(&a, &m);
+        assert!(result.is_none());
+    }
+    
+    #[test]
+    fn test_extended_gcd() {
+        // Test with relatively prime numbers
+        let a = BigInt::from(35u32);
+        let b = BigInt::from(15u32);
+        let (g, x, y) = extended_gcd(&a, &b);
+        
+        // gcd(35, 15) = 5
+        assert_eq!(g, BigInt::from(5u32));
+        
+        // Verify that g = ax + by
+        let ax = &a * &x;
+        let by = &b * &y;
+        assert_eq!(g, ax + by);
+        
+        // Test with one value being zero
+        let a = BigInt::from(15u32);
+        let b = BigInt::from(0u32);
+        let (g, x, y) = extended_gcd(&a, &b);
+        
+        // gcd(15, 0) = 15
+        assert_eq!(g, BigInt::from(15u32));
+        assert_eq!(x, BigInt::one());
+        assert_eq!(y, BigInt::zero());
+    }
+    
+    #[test]
+    fn test_mod_pow() {
+        let base = BigInt::from(4u32);
+        let exp = BigInt::from(13u32);
+        let modulus = BigInt::from(497u32);
+        
+        // Calculate 4^13 mod 497 = 445
+        let result = mod_pow(&base, &exp, &modulus);
+        assert_eq!(result, BigInt::from(445u32));
+        
+        // Compare with direct modpow method
+        let direct_result = base.modpow(&exp, &modulus);
+        assert_eq!(result, direct_result);
+    }
+    
+    #[test]
+    fn test_key_share_properties() {
+        let params = create_test_params();
+        let tp = ThresholdPaillier::new_fixed_key(64, 1, 5, 3, &params).unwrap();
+        
+        // Test that we have the correct number of key shares
+        assert_eq!(tp.key_shares.len(), 5);
+        
+        // Test that each key share has different private share values
+        let mut unique_shares = std::collections::HashSet::new();
+        for share in &tp.key_shares {
+            unique_shares.insert(share.si.clone());
+        }
+        assert_eq!(unique_shares.len(), 5, "All key shares should have unique values");
+        
+        // Test that key shares have correct indices
+        for i in 0..5 {
+            assert_eq!(tp.key_shares[i].index, (i + 1) as u8);
+        }
+    }
+    
+    #[test]
+    fn test_public_key_properties() {
+        let params = create_test_params();
+        let tp = ThresholdPaillier::new_fixed_key(64, 1, 3, 2, &params).unwrap();
+        let pk = &tp.pub_key;
+        
+        // Test n = p*q
+        assert_eq!(pk.n, params.p.clone() * params.q.clone());
+        
+        // Test delta = l!
+        assert_eq!(pk.delta, factorial(pk.l as u64));
+        
+        // Test vi values are set and non-zero
+        for vi in &pk.vi {
+            assert!(!vi.is_zero(), "vi values should not be zero");
+        }
+        
+        // Test constant is set correctly
+        let n_to_s = pk.n.clone().pow(pk.s as u32);
+        let delta_square = &pk.delta * &pk.delta;
+        let expected_constant = mod_inverse(&(BigInt::from(4u32) * delta_square), &n_to_s).unwrap();
+        assert_eq!(pk.constant, expected_constant);
+    }
+    
+    #[test]
+    fn test_integration_with_large_values() {
+        // This tests creation with slightly larger values
+        // Not too large to make tests slow, but large enough to test real behavior
+        let p = BigInt::from_str("11087").unwrap();  // Safe prime
+        let p1 = BigInt::from_str("5543").unwrap();  // (p-1)/2
+        let q = BigInt::from_str("7907").unwrap();   // Safe prime
+        let q1 = BigInt::from_str("3953").unwrap();  // (q-1)/2
+        
+        let params = FixedParams { p, p1, q, q1 };
+        assert!(params.validate(), "Test parameters should be valid");
+        
+        let result = ThresholdPaillier::new_fixed_key(64, 1, 3, 2, &params);
+        assert!(result.is_ok(), "Key generation should succeed with valid parameters");
+    }
+    
+    #[test]
+    fn test_new_with_random_primes() {
+        // Test the random prime generation path - this will be slow
+        // Using smallest allowed bit size for faster tests
+        let result = ThresholdPaillier::new(64, 1, 3, 2);
+        if let Err(e) = &result {
+            println!("Error generating keys: {:?}", e);
+        }
+        assert!(result.is_ok(), "Random key generation should succeed");
+        
+        let tp = result.unwrap();
+        assert_eq!(tp.pub_key.l, 3);
+        assert_eq!(tp.pub_key.k, 2);
+        assert_eq!(tp.pub_key.s, 1);
+        assert_eq!(tp.key_shares.len(), 3);
+    }
+    
+    #[test]
+    #[ignore] // This test is very slow, so we mark it as ignored by default
+    fn test_new_with_realistic_parameters() {
+        // Test with more realistic parameters - this will be very slow
+        // Only run when explicitly requested
+        let result = ThresholdPaillier::new(1024, 1, 5, 3);
+        assert!(result.is_ok(), "Random key generation should succeed with realistic parameters");
+    }
+    
+    #[test]
+    fn test_end_to_end_key_generation_and_sharing() {
+        let params = create_test_params();
+        let tp = ThresholdPaillier::new_fixed_key(64, 1, 5, 3, &params).unwrap();
+        
+        // Verify that the public key components match expectations
+        assert_eq!(tp.pub_key.n, params.p * params.q);
+        assert_eq!(tp.pub_key.k, 3);
+        assert_eq!(tp.pub_key.l, 5);
+        assert_eq!(tp.pub_key.s, 1);
+        
+        // Verify that we have the right number of key shares
+        assert_eq!(tp.key_shares.len(), 5);
+        
+        // Verify that each key share has the correct index
+        for i in 0..5 {
+            assert_eq!(tp.key_shares[i].index, i as u8 + 1);
+            assert_eq!(tp.key_shares[i].pub_key.n, tp.pub_key.n);
+        }
+        
+        // Verify that vi values in the public key are set correctly
+        // Each vi should be v^(si * delta) mod n^(s+1)
+        let n_to_s_plus_one = tp.pub_key.n.pow(tp.pub_key.s as u32 + 1);
+        let delta = tp.pub_key.delta.clone();
+        
+        for i in 0..5 {
+            let expected_vi = tp.pub_key.v.modpow(&(&tp.key_shares[i].si * &delta), &n_to_s_plus_one);
+            assert_eq!(tp.pub_key.vi[i], expected_vi);
+        }
+    }
+}
